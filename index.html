@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>買い物リストアプリ v3.2 Firebase</title>
+<style>
+*{box-sizing:border-box}
+:root{
+  color-scheme:dark;
+  --bg:#111315;
+  --panel:#1d2024;
+  --panel2:#242930;
+  --line:#59616d;
+  --text:#f3f5f7;
+  --muted:#aeb6c2;
+  --brand:#36d399;
+  --accent:#4ea1ff;
+  --warn:#ffd166;
+  --danger:#ff6b6b;
+}
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--text);
+  font-family:"Yu Gothic","Meiryo",system-ui,sans-serif;
+}
+header{
+  position:sticky;
+  top:0;
+  z-index:10;
+  background:#181b1f;
+  border-bottom:1px solid #38404a;
+  padding:14px 16px;
+}
+.titleRow{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:12px;
+  max-width:980px;
+  margin:auto;
+}
+h1{
+  margin:0;
+  font-size:22px;
+  color:#6ee7ff;
+}
+.status{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  color:var(--muted);
+  font-size:13px;
+  white-space:nowrap;
+}
+.dot{
+  width:10px;
+  height:10px;
+  border-radius:50%;
+  background:#777;
+}
+.dot.ok{background:var(--brand)}
+.dot.err{background:var(--danger)}
+main{
+  max-width:980px;
+  margin:0 auto;
+  padding:12px;
+}
+.section{
+  margin:12px 0;
+  padding:12px;
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:8px;
+}
+.section h2{
+  margin:0 0 10px;
+  font-size:17px;
+}
+label{
+  display:block;
+  margin:8px 0 4px;
+  color:var(--muted);
+  font-size:13px;
+}
+input,select,textarea,button{
+  font:inherit;
+}
+input,select,textarea{
+  width:100%;
+  padding:9px;
+  background:#15181c;
+  color:var(--text);
+  border:1px solid #59616d;
+  border-radius:6px;
+}
+textarea{
+  min-height:108px;
+  resize:vertical;
+  font-family:Consolas,monospace;
+  font-size:12px;
+}
+button{
+  min-height:38px;
+  padding:8px 12px;
+  margin:4px 4px 4px 0;
+  border:0;
+  border-radius:6px;
+  cursor:pointer;
+  font-weight:700;
+}
+button:disabled{
+  opacity:.45;
+  cursor:not-allowed;
+}
+.btn-add{background:var(--brand);color:#0b1511}
+.btn-del{background:var(--danger);color:white}
+.btn-detail{background:var(--accent);color:white}
+.btn-done{background:var(--warn);color:#17130a}
+.btn-sub{background:#6b7280;color:white}
+.grid2{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+}
+.hidden{display:none!important}
+.store{
+  background:linear-gradient(90deg,#2563eb,#4ea1ff);
+  color:white;
+  padding:8px;
+  margin-top:10px;
+  border-radius:8px;
+  font-weight:700;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:8px;
+}
+.item{
+  display:grid;
+  grid-template-columns:1fr auto auto;
+  align-items:center;
+  gap:8px;
+  padding:8px;
+  border-bottom:1px solid #3c434d;
+}
+.doneText{
+  text-decoration:line-through;
+  color:#8b949e;
+}
+.qtyWrap{
+  display:flex;
+  align-items:center;
+  gap:4px;
+}
+.qtyBtn{
+  width:36px;
+  height:36px;
+  padding:0;
+  background:#555e6b;
+  color:white;
+  font-size:18px;
+}
+.qtyInput{
+  width:64px!important;
+  text-align:center;
+}
+.recipeRow{
+  display:grid;
+  grid-template-columns:1fr 90px 1fr auto;
+  gap:6px;
+  margin-bottom:6px;
+}
+.recipeCard,.archiveCard{
+  background:var(--panel2);
+  border:1px solid #48515e;
+  border-radius:8px;
+  padding:8px;
+  margin-top:8px;
+}
+.recipeTitle{
+  color:#ffe08a;
+  font-weight:700;
+}
+.recipePreviewItem{
+  padding:6px;
+  border-bottom:1px solid #3c434d;
+}
+.empty{
+  color:var(--muted);
+  padding:8px 0;
+}
+.mini{
+  color:var(--muted);
+  font-size:12px;
+}
+.rowActions{
+  display:flex;
+  justify-content:flex-end;
+  flex-wrap:wrap;
+}
+@media(max-width:680px){
+  .titleRow,.grid2{
+    display:block;
+  }
+  h1{font-size:18px}
+  .status{margin-top:6px}
+  .item{
+    grid-template-columns:1fr;
+  }
+  .recipeRow{
+    grid-template-columns:1fr 72px;
+  }
+  .recipeRow .rStore,.recipeRow .btn-del{
+    grid-column:auto;
+  }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="titleRow">
+    <h1>買い物リストアプリ v3.2 Firebase</h1>
+    <div class="status"><span id="syncDot" class="dot"></span><span id="syncStatus">未接続</span></div>
+  </div>
+</header>
+
+<main>
+  <section class="section" id="firebaseSection">
+    <h2>■ Firebase設定</h2>
+    <label>Firebase設定オブジェクト</label>
+    <textarea id="firebaseConfig" spellcheck="false" placeholder='{"apiKey":"...","authDomain":"...","projectId":"...","appId":"..."}'></textarea>
+    <div class="grid2">
+      <div>
+        <label>同期キー</label>
+        <input id="syncKey" value="default-shopping-list" placeholder="家族や端末で同じキーを使う">
+      </div>
+      <div>
+        <label>接続モード</label>
+        <select id="authMode">
+          <option value="anonymous">匿名ログインを使う</option>
+          <option value="none">ログインなし</option>
+        </select>
+      </div>
+    </div>
+    <button class="btn-detail" id="connectBtn">Firebase接続</button>
+    <button class="btn-sub" id="saveConfigBtn">設定を保存</button>
+    <button class="btn-del" id="clearConfigBtn">設定を消去</button>
+    <div class="mini">Firestore保存先: <span id="docPath">shoppingLists/default-shopping-list</span></div>
+  </section>
+
+  <section class="section">
+    <h2>■ リスト作成</h2>
+    <input id="listName" placeholder="リスト名">
+    <div class="grid2">
+      <div>
+        <label>作成日</label>
+        <input type="date" id="createDate">
+      </div>
+      <div>
+        <label>購入予定日</label>
+        <input type="date" id="buyDate">
+      </div>
+    </div>
+    <button class="btn-add" id="newListBtn">新規作成</button>
+  </section>
+
+  <section class="section">
+    <h2>■ 店舗追加</h2>
+    <input id="storeName" placeholder="店舗名">
+    <button class="btn-add" id="addStoreBtn">追加</button>
+  </section>
+
+  <section class="section">
+    <h2>■ 商品追加</h2>
+    <select id="storeSelect"></select>
+    <input id="itemName" placeholder="商品名">
+    <label>数量</label>
+    <div class="qtyWrap">
+      <button type="button" class="qtyBtn" id="qtyDownBtn">−</button>
+      <input id="itemQty" class="qtyInput" type="number" min="1" value="1">
+      <button type="button" class="qtyBtn" id="qtyUpBtn">＋</button>
+    </div>
+    <button class="btn-add" id="addItemBtn">追加</button>
+  </section>
+
+  <section class="section">
+    <h2>■ レシピから追加</h2>
+    <select id="recipeSelect"></select>
+    <button class="btn-detail" id="loadRecipeBtn">レシピ読込</button>
+    <div id="recipePreview"></div>
+    <button class="btn-add" id="addRecipeItemsBtn">選択商品を追加</button>
+  </section>
+
+  <section class="section">
+    <h2>■ レシピ管理</h2>
+    <input id="recipeName" placeholder="レシピ名">
+    <div id="recipeItems"></div>
+    <button class="btn-detail" id="addRecipeRowBtn">材料を追加</button>
+    <button class="btn-add" id="saveRecipeBtn">レシピ保存</button>
+    <hr>
+    <h2>登録レシピ</h2>
+    <div id="recipeList"></div>
+  </section>
+
+  <section class="section">
+    <h2>■ 買い物リスト</h2>
+    <div id="items"></div>
+    <button class="btn-done" id="backupListBtn">買い物完了・アーカイブ保存</button>
+  </section>
+
+  <section class="section" id="archiveList">
+    <h2>■ アーカイブ</h2>
+    <div id="archives"></div>
+  </section>
+
+  <section class="section hidden" id="archiveDetail">
+    <button class="btn-sub" id="backArchiveBtn">← 戻る</button>
+    <div id="detail"></div>
+  </section>
+</main>
+
+<script type="module">
+import { initializeApp, getApp, getApps } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
+import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
+import {
+  getFirestore,
+  doc,
+  getDoc,
+  setDoc,
+  onSnapshot,
+  serverTimestamp
+} from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
+
+const emptyList = () => ({ name:"", createDate:"", buyDate:"", stores:[] });
+const emptyState = () => ({ current:emptyList(), recipes:[], archives:[] });
+const configStorageKey = "shoppingListV32FirebaseConfig";
+const syncKeyStorageKey = "shoppingListV32SyncKey";
+const authModeStorageKey = "shoppingListV32AuthMode";
+
+let state = emptyState();
+let selected = 0;
+let recipePreviewData = [];
+let app = null;
+let db = null;
+let activeDocRef = null;
+let unsubscribe = null;
+let connected = false;
+let applyingRemote = false;
+let saveTimer = null;
+let lastSavePromise = Promise.resolve();
+
+const $ = id => document.getElementById(id);
+
+function setStatus(text, type="idle"){
+  $("syncStatus").textContent = text;
+  $("syncDot").className = "dot" + (type === "ok" ? " ok" : type === "err" ? " err" : "");
+}
+
+function currentDocPath(){
+  const key = ($("syncKey").value.trim() || "default-shopping-list").replace(/[\/#?[\]]/g, "-");
+  $("docPath").textContent = `shoppingLists/${key}`;
+  return key;
+}
+
+function parseFirebaseConfig(){
+  const raw = $("firebaseConfig").value.trim();
+  if(!raw){
+    throw new Error("Firebase設定を入力してください。");
+  }
+  const cleaned = raw
+    .replace(/^const\s+firebaseConfig\s*=\s*/,"")
+    .replace(/^firebaseConfig\s*=\s*/,"")
+    .replace(/;$/,"");
+  return JSON.parse(cleaned);
+}
+
+function saveConnectionSettings(){
+  localStorage.setItem(configStorageKey, $("firebaseConfig").value.trim());
+  localStorage.setItem(syncKeyStorageKey, $("syncKey").value.trim() || "default-shopping-list");
+  localStorage.setItem(authModeStorageKey, $("authMode").value);
+  currentDocPath();
+}
+
+function loadConnectionSettings(){
+  $("firebaseConfig").value = localStorage.getItem(configStorageKey) || "";
+  $("syncKey").value = localStorage.getItem(syncKeyStorageKey) || "default-shopping-list";
+  $("authMode").value = localStorage.getItem(authModeStorageKey) || "anonymous";
+  currentDocPath();
+}
+
+function normalizeState(data){
+  const next = data && typeof data === "object" ? data : {};
+  const current = next.current && typeof next.current === "object" ? next.current : emptyList();
+  current.stores = Array.isArray(current.stores) ? current.stores : [];
+  current.stores.forEach(store=>{
+    store.name = store.name || "";
+    store.items = Array.isArray(store.items) ? store.items : [];
+    store.items.forEach(item=>{
+      item.name = item.name || "";
+      item.qty = Math.max(1, Number(item.qty) || 1);
+      item.done = Boolean(item.done);
+    });
+  });
+  return {
+    current,
+    recipes:Array.isArray(next.recipes) ? next.recipes : [],
+    archives:Array.isArray(next.archives) ? next.archives : []
+  };
+}
+
+async function connectFirebase(){
+  try{
+    saveConnectionSettings();
+    setStatus("接続中...", "idle");
+    const firebaseConfig = parseFirebaseConfig();
+    app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+    db = getFirestore(app);
+    if($("authMode").value === "anonymous"){
+      await signInAnonymously(getAuth(app));
+    }
+    activeDocRef = doc(db, "shoppingLists", currentDocPath());
+    const snap = await getDoc(activeDocRef);
+    if(!snap.exists()){
+      await setDoc(activeDocRef, {
+        ...state,
+        schemaVersion:3.2,
+        createdAt:serverTimestamp(),
+        updatedAt:serverTimestamp()
+      });
+    }
+    if(unsubscribe){
+      unsubscribe();
+    }
+    unsubscribe = onSnapshot(activeDocRef, snapshot=>{
+      applyingRemote = true;
+      state = normalizeState(snapshot.data());
+      connected = true;
+      applyingRemote = false;
+      setStatus("Firebase同期中", "ok");
+      render();
+    }, error=>{
+      connected = false;
+      setStatus(`同期エラー: ${error.message}`, "err");
+    });
+  }catch(error){
+    connected = false;
+    setStatus(error.message, "err");
+  }
+}
+
+function save(){
+  if(applyingRemote || !connected || !db || !activeDocRef){
+    render();
+    return;
+  }
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(()=>{
+    lastSavePromise = setDoc(activeDocRef, {
+      ...state,
+      schemaVersion:3.2,
+      updatedAt:serverTimestamp()
+    }, { merge:true }).catch(error=>{
+      setStatus(`保存エラー: ${error.message}`, "err");
+    });
+  }, 220);
+}
+
+function recipes(){
+  return state.recipes;
+}
+
+function archives(){
+  return state.archives;
+}
+
+function changeAddQty(diff){
+  let qty = Number($("itemQty").value || 1);
+  qty += diff;
+  if(qty < 1) qty = 1;
+  $("itemQty").value = qty;
+}
+
+function newList(){
+  if(state.current.stores.length && !confirm("現在のリストを破棄して新規作成しますか？")){
+    return;
+  }
+  state.current = {
+    name:$("listName").value.trim(),
+    createDate:$("createDate").value,
+    buyDate:$("buyDate").value,
+    stores:[]
+  };
+  selected = 0;
+  save();
+  render();
+}
+
+function addStore(){
+  const name = $("storeName").value.trim();
+  if(!name) return;
+  state.current.stores.push({ name, items:[] });
+  $("storeName").value = "";
+  save();
+  render();
+}
+
+function addItem(){
+  const itemName = $("itemName").value.trim();
+  if(!itemName || state.current.stores.length === 0) return;
+  state.current.stores[selected].items.push({
+    name:itemName,
+    qty:Number($("itemQty").value) || 1,
+    done:false
+  });
+  $("itemName").value = "";
+  $("itemQty").value = 1;
+  save();
+  render();
+}
+
+function toggle(storeIndex,itemIndex){
+  const item = state.current.stores[storeIndex]?.items[itemIndex];
+  if(!item) return;
+  item.done = !item.done;
+  save();
+  render();
+}
+
+function delItem(storeIndex,itemIndex){
+  state.current.stores[storeIndex]?.items.splice(itemIndex,1);
+  save();
+  render();
+}
+
+function delStore(storeIndex){
+  if(!confirm("店舗を削除しますか？")) return;
+  state.current.stores.splice(storeIndex,1);
+  if(selected >= state.current.stores.length) selected = Math.max(0, state.current.stores.length - 1);
+  save();
+  render();
+}
+
+function qty(storeIndex,itemIndex,value){
+  const item = state.current.stores[storeIndex]?.items[itemIndex];
+  if(!item) return;
+  item.qty = Math.max(1, Number(value) || 1);
+  save();
+}
+
+function addRecipeRow(name="", qtyValue=1, store=""){
+  const row = document.createElement("div");
+  row.className = "recipeRow";
+  row.innerHTML = `
+    <input class="rName" placeholder="材料名" value="${escapeAttr(name)}">
+    <input class="rQty" type="number" min="1" value="${escapeAttr(qtyValue)}">
+    <input class="rStore" placeholder="店舗" value="${escapeAttr(store)}">
+    <button class="btn-del" type="button">削除</button>
+  `;
+  row.querySelector("button").addEventListener("click",()=>row.remove());
+  $("recipeItems").appendChild(row);
+}
+
+function saveRecipe(){
+  const recipeName = $("recipeName").value.trim();
+  if(!recipeName){
+    alert("レシピ名を入力してください。");
+    return;
+  }
+  const items = [...document.querySelectorAll("#recipeItems .recipeRow")]
+    .map(row=>({
+      name:row.querySelector(".rName").value.trim(),
+      qty:Number(row.querySelector(".rQty").value) || 1,
+      store:row.querySelector(".rStore").value.trim()
+    }))
+    .filter(item=>item.name);
+  if(items.length === 0){
+    alert("材料を入力してください。");
+    return;
+  }
+  state.recipes.push({ name:recipeName, items });
+  $("recipeName").value = "";
+  $("recipeItems").innerHTML = "";
+  addRecipeRow();
+  save();
+  render();
+  alert("レシピを保存しました。");
+}
+
+function delRecipe(index){
+  if(!confirm("レシピを削除しますか？")) return;
+  state.recipes.splice(index,1);
+  save();
+  render();
+}
+
+function loadRecipe(){
+  const recipeIndex = $("recipeSelect").value;
+  const recipe = state.recipes[recipeIndex];
+  if(recipeIndex === "" || !recipe) return;
+  recipePreviewData = JSON.parse(JSON.stringify(recipe.items));
+  $("recipePreview").innerHTML = recipe.items.map((item,index)=>`
+    <div class="recipePreviewItem">
+      <label>
+        <input type="checkbox" class="recipeCheck" data-index="${index}" checked>
+        ${escapeHtml(item.name)} × ${escapeHtml(item.qty)}（${escapeHtml(item.store || "店舗未設定")}）
+      </label>
+    </div>
+  `).join("");
+}
+
+function addRecipeItems(){
+  document.querySelectorAll(".recipeCheck").forEach(check=>{
+    if(!check.checked) return;
+    const item = recipePreviewData[Number(check.dataset.index)];
+    if(!item) return;
+    const storeName = item.store || "未分類";
+    let storeIndex = state.current.stores.findIndex(store=>store.name === storeName);
+    if(storeIndex === -1){
+      state.current.stores.push({ name:storeName, items:[] });
+      storeIndex = state.current.stores.length - 1;
+    }
+    const existing = state.current.stores[storeIndex].items.find(x=>x.name === item.name);
+    if(existing){
+      existing.qty += item.qty;
+    }else{
+      state.current.stores[storeIndex].items.push({ name:item.name, qty:item.qty, done:false });
+    }
+  });
+  save();
+  render();
+  alert("レシピの商品を追加しました。");
+}
+
+function backupList(){
+  state.archives.push({
+    savedAt:new Date().toLocaleString("ja-JP"),
+    data:JSON.parse(JSON.stringify(state.current))
+  });
+  save();
+  render();
+  alert("アーカイブへ保存しました。");
+}
+
+function delArchive(index){
+  if(!confirm("アーカイブを削除しますか？")) return;
+  state.archives.splice(index,1);
+  save();
+  render();
+}
+
+function showArchive(index){
+  const archive = state.archives[index];
+  if(!archive) return;
+  $("archiveList").classList.add("hidden");
+  $("archiveDetail").classList.remove("hidden");
+  let html = `
+    <h2>${escapeHtml(archive.data.name || "無題")}</h2>
+    <p>保存日時: ${escapeHtml(archive.savedAt)}</p>
+    <p>作成日: ${escapeHtml(archive.data.createDate || "")}</p>
+    <p>購入予定日: ${escapeHtml(archive.data.buyDate || "")}</p>
+  `;
+  archive.data.stores.forEach(store=>{
+    html += `<hr><h3>${escapeHtml(store.name)}</h3>`;
+    store.items.forEach(item=>{
+      html += `${escapeHtml(item.name)} × ${escapeHtml(item.qty)}<br>`;
+    });
+  });
+  $("detail").innerHTML = html;
+}
+
+function backArchive(){
+  $("archiveDetail").classList.add("hidden");
+  $("archiveList").classList.remove("hidden");
+}
+
+function render(){
+  $("listName").value = state.current.name || "";
+  $("createDate").value = state.current.createDate || "";
+  $("buyDate").value = state.current.buyDate || "";
+
+  const storeSelect = $("storeSelect");
+  storeSelect.innerHTML = "";
+  state.current.stores.forEach((store,index)=>{
+    const option = document.createElement("option");
+    option.value = index;
+    option.textContent = store.name;
+    storeSelect.appendChild(option);
+  });
+  if(state.current.stores.length){
+    if(selected >= state.current.stores.length) selected = state.current.stores.length - 1;
+    storeSelect.value = selected;
+  }
+
+  $("items").innerHTML = state.current.stores.length ? state.current.stores.map((store,storeIndex)=>`
+    <div class="store">
+      <span>${escapeHtml(store.name)}</span>
+      <button class="btn-del" data-action="delStore" data-store="${storeIndex}">削除</button>
+    </div>
+    ${store.items.map((item,itemIndex)=>`
+      <div class="item">
+        <span class="${item.done ? "doneText" : ""}">${escapeHtml(item.name)}</span>
+        <span class="qtyWrap">
+          <input class="qtyInput" type="number" min="1" value="${escapeAttr(item.qty)}" data-action="qty" data-store="${storeIndex}" data-item="${itemIndex}">
+        </span>
+        <span class="rowActions">
+          <button class="btn-sub" data-action="toggle" data-store="${storeIndex}" data-item="${itemIndex}">${item.done ? "戻す" : "購入済"}</button>
+          <button class="btn-del" data-action="delItem" data-store="${storeIndex}" data-item="${itemIndex}">削除</button>
+        </span>
+      </div>
+    `).join("")}
+  `).join("") : `<div class="empty">店舗と商品を追加してください。</div>`;
+
+  $("recipeList").innerHTML = state.recipes.length ? state.recipes.map((recipe,index)=>`
+    <div class="recipeCard">
+      <div class="recipeTitle">${escapeHtml(recipe.name)}</div>
+      <div>${escapeHtml(recipe.items.length)}件</div>
+      <button class="btn-del" data-action="delRecipe" data-index="${index}">削除</button>
+    </div>
+  `).join("") : `<div class="empty">登録レシピはありません。</div>`;
+
+  $("recipeSelect").innerHTML = `<option value="">選択してください</option>` +
+    state.recipes.map((recipe,index)=>`<option value="${index}">${escapeHtml(recipe.name)}</option>`).join("");
+
+  $("archives").innerHTML = state.archives.length ? state.archives.map((archive,index)=>`
+    <div class="archiveCard">
+      <div>${escapeHtml(archive.data.name || "無題")}</div>
+      <div class="mini">${escapeHtml(archive.savedAt)}</div>
+      <button class="btn-detail" data-action="showArchive" data-index="${index}">詳細</button>
+      <button class="btn-del" data-action="delArchive" data-index="${index}">削除</button>
+    </div>
+  `).join("") : `<div class="empty">アーカイブはありません。</div>`;
+}
+
+function escapeHtml(value){
+  return String(value ?? "").replace(/[&<>"']/g, char=>({
+    "&":"&amp;",
+    "<":"&lt;",
+    ">":"&gt;",
+    "\"":"&quot;",
+    "'":"&#39;"
+  }[char]));
+}
+
+function escapeAttr(value){
+  return escapeHtml(value);
+}
+
+function bindEvents(){
+  $("connectBtn").addEventListener("click", connectFirebase);
+  $("saveConfigBtn").addEventListener("click", ()=>{
+    saveConnectionSettings();
+    setStatus("設定を保存しました", "idle");
+  });
+  $("clearConfigBtn").addEventListener("click", ()=>{
+    localStorage.removeItem(configStorageKey);
+    localStorage.removeItem(syncKeyStorageKey);
+    localStorage.removeItem(authModeStorageKey);
+    loadConnectionSettings();
+    setStatus("設定を消去しました", "idle");
+  });
+  $("syncKey").addEventListener("input", currentDocPath);
+  $("newListBtn").addEventListener("click", newList);
+  $("addStoreBtn").addEventListener("click", addStore);
+  $("addItemBtn").addEventListener("click", addItem);
+  $("qtyDownBtn").addEventListener("click", ()=>changeAddQty(-1));
+  $("qtyUpBtn").addEventListener("click", ()=>changeAddQty(1));
+  $("loadRecipeBtn").addEventListener("click", loadRecipe);
+  $("addRecipeItemsBtn").addEventListener("click", addRecipeItems);
+  $("addRecipeRowBtn").addEventListener("click", ()=>addRecipeRow());
+  $("saveRecipeBtn").addEventListener("click", saveRecipe);
+  $("backupListBtn").addEventListener("click", backupList);
+  $("backArchiveBtn").addEventListener("click", backArchive);
+  $("storeSelect").addEventListener("change", event=>{
+    selected = Number(event.target.value);
+  });
+  document.addEventListener("click", event=>{
+    const target = event.target.closest("button[data-action]");
+    if(!target) return;
+    const action = target.dataset.action;
+    const store = Number(target.dataset.store);
+    const item = Number(target.dataset.item);
+    const index = Number(target.dataset.index);
+    if(action === "toggle") toggle(store,item);
+    if(action === "delItem") delItem(store,item);
+    if(action === "delStore") delStore(store);
+    if(action === "delRecipe") delRecipe(index);
+    if(action === "showArchive") showArchive(index);
+    if(action === "delArchive") delArchive(index);
+  });
+  document.addEventListener("change", event=>{
+    if(event.target.dataset.action === "qty"){
+      qty(Number(event.target.dataset.store), Number(event.target.dataset.item), event.target.value);
+    }
+  });
+  document.addEventListener("keydown", event=>{
+    if(event.key !== "Enter") return;
+    const id = document.activeElement.id;
+    if(id === "storeName") addStore();
+    if(id === "itemName" || id === "itemQty") addItem();
+  });
+  window.addEventListener("beforeunload", ()=>{
+    clearTimeout(saveTimer);
+  });
+}
+
+loadConnectionSettings();
+bindEvents();
+addRecipeRow();
+render();
+if($("firebaseConfig").value.trim()){
+  connectFirebase();
+}
+</script>
+</body>
+</html>
