@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>買い物リストアプリ v3.2 Firebase</title>
+<title>買い物リストアプリ v3.3 Firebase</title>
 <style>
 *{box-sizing:border-box}
 :root{
@@ -183,6 +183,19 @@ button:disabled{
   color:#ffe08a;
   font-weight:700;
 }
+.recipeDetails{
+  margin-top:14px;
+  border-top:1px solid #48515e;
+  padding-top:10px;
+}
+.recipeDetails summary{
+  cursor:pointer;
+  font-weight:700;
+  color:#ffe08a;
+  padding:6px 2px;
+}
+.recipeDetails summary::marker{color:var(--accent)}
+.syncingButton{opacity:.72}
 .recipePreviewItem{
   padding:6px;
   border-bottom:1px solid #3c434d;
@@ -221,35 +234,12 @@ button:disabled{
 <body>
 <header>
   <div class="titleRow">
-    <h1>買い物リストアプリ v3.2 by由雅</h1>
+    <h1>買い物リストアプリ v3.3 by由雅</h1>
     <div class="status"><span id="syncDot" class="dot"></span><span id="syncStatus">未接続</span></div>
   </div>
 </header>
 
 <main>
-  <section class="section" id="firebaseSection">
-    <h2>■ Firebase設定</h2>
-    <label>Firebase設定オブジェクト</label>
-    <textarea id="firebaseConfig" spellcheck="false" placeholder='{"apiKey":"...","authDomain":"...","projectId":"...","appId":"..."}'></textarea>
-    <div class="grid2">
-      <div>
-        <label>同期キー</label>
-        <input id="syncKey" value="default-shopping-list" placeholder="家族や端末で同じキーを使う">
-      </div>
-      <div>
-        <label>接続モード</label>
-        <select id="authMode">
-          <option value="anonymous">匿名ログインを使う</option>
-          <option value="none">ログインなし</option>
-        </select>
-      </div>
-    </div>
-    <button class="btn-detail" id="connectBtn">Firebase接続</button>
-    <button class="btn-sub" id="saveConfigBtn">設定を保存</button>
-    <button class="btn-del" id="clearConfigBtn">設定を消去</button>
-    <div class="mini">Firestore保存先: <span id="docPath">shoppingLists/default-shopping-list</span></div>
-  </section>
-
   <section class="section">
     <h2>■ リスト作成</h2>
     <input id="listName" placeholder="リスト名">
@@ -267,9 +257,9 @@ button:disabled{
   </section>
 
   <section class="section">
-    <h2>■ 店舗追加</h2>
-    <input id="storeName" placeholder="店舗名">
-    <button class="btn-add" id="addStoreBtn">追加</button>
+    <h2>■ 買い物リスト</h2>
+    <div id="items"></div>
+    <button class="btn-done" id="backupListBtn">買い物完了・アーカイブ保存</button>
   </section>
 
   <section class="section">
@@ -294,20 +284,21 @@ button:disabled{
   </section>
 
   <section class="section">
+    <h2>■ 店舗追加</h2>
+    <input id="storeName" placeholder="店舗名">
+    <button class="btn-add" id="addStoreBtn">追加</button>
+  </section>
+
+  <section class="section">
     <h2>■ レシピ管理</h2>
     <input id="recipeName" placeholder="レシピ名">
     <div id="recipeItems"></div>
     <button class="btn-detail" id="addRecipeRowBtn">材料を追加</button>
     <button class="btn-add" id="saveRecipeBtn">レシピ保存</button>
-    <hr>
-    <h2>登録レシピ</h2>
-    <div id="recipeList"></div>
-  </section>
-
-  <section class="section">
-    <h2>■ 買い物リスト</h2>
-    <div id="items"></div>
-    <button class="btn-done" id="backupListBtn">買い物完了・アーカイブ保存</button>
+    <details class="recipeDetails" id="registeredRecipes">
+      <summary>登録レシピ <span id="recipeCount">0件</span></summary>
+      <div id="recipeList"></div>
+    </details>
   </section>
 
   <section class="section" id="archiveList">
@@ -319,6 +310,29 @@ button:disabled{
     <button class="btn-sub" id="backArchiveBtn">← 戻る</button>
     <div id="detail"></div>
   </section>
+
+  <section class="section" id="firebaseSection">
+    <h2>■ Firebase設定</h2>
+    <label>Firebase設定オブジェクト</label>
+    <textarea id="firebaseConfig" spellcheck="false" placeholder='{"apiKey":"...","authDomain":"...","projectId":"...","appId":"..."}'></textarea>
+    <div class="grid2">
+      <div>
+        <label>同期キー</label>
+        <input id="syncKey" value="default-shopping-list" placeholder="家族や端末で同じキーを使う">
+      </div>
+      <div>
+        <label>接続モード</label>
+        <select id="authMode">
+          <option value="anonymous">匿名ログインを使う</option>
+          <option value="none">ログインなし</option>
+        </select>
+      </div>
+    </div>
+    <button class="btn-detail" id="connectBtn">Firebase接続</button>
+    <button class="btn-sub" id="saveConfigBtn">設定を保存</button>
+    <button class="btn-del" id="clearConfigBtn">設定を消去</button>
+    <div class="mini">Firestore保存先: <span id="docPath">shoppingLists/default-shopping-list</span></div>
+  </section>
 </main>
 
 <script type="module">
@@ -329,6 +343,8 @@ import {
   doc,
   getDoc,
   setDoc,
+  updateDoc,
+  FieldPath,
   onSnapshot,
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
@@ -350,6 +366,9 @@ let connected = false;
 let applyingRemote = false;
 let saveTimer = null;
 let lastSavePromise = Promise.resolve();
+let purchaseStates = {};
+const pendingPurchaseIds = new Set();
+const toggleWriteVersions = new Map();
 
 const $ = id => document.getElementById(id);
 
@@ -394,10 +413,11 @@ function normalizeState(data){
   const next = data && typeof data === "object" ? data : {};
   const current = next.current && typeof next.current === "object" ? next.current : emptyList();
   current.stores = Array.isArray(current.stores) ? current.stores : [];
-  current.stores.forEach(store=>{
+  current.stores.forEach((store,storeIndex)=>{
     store.name = store.name || "";
     store.items = Array.isArray(store.items) ? store.items : [];
-    store.items.forEach(item=>{
+    store.items.forEach((item,itemIndex)=>{
+      item.id = item.id || `legacy-${storeIndex}-${itemIndex}`;
       item.name = item.name || "";
       item.qty = Math.max(1, Number(item.qty) || 1);
       item.done = Boolean(item.done);
@@ -425,7 +445,7 @@ async function connectFirebase(){
     if(!snap.exists()){
       await setDoc(activeDocRef, {
         ...state,
-        schemaVersion:3.2,
+         schemaVersion:3.3,
         createdAt:serverTimestamp(),
         updatedAt:serverTimestamp()
       });
@@ -435,10 +455,21 @@ async function connectFirebase(){
     }
     unsubscribe = onSnapshot(activeDocRef, snapshot=>{
       applyingRemote = true;
-      state = normalizeState(snapshot.data());
+      const remoteData = snapshot.data() || {};
+      purchaseStates = remoteData.purchaseStates && typeof remoteData.purchaseStates === "object"
+        ? remoteData.purchaseStates
+        : {};
+      state = normalizeState(remoteData);
+      state.current.stores.forEach(store=>store.items.forEach(item=>{
+        if(Object.prototype.hasOwnProperty.call(purchaseStates, item.id)){
+          item.done = Boolean(purchaseStates[item.id]);
+        }else{
+          purchaseStates[item.id] = Boolean(item.done);
+        }
+      }));
       connected = true;
       applyingRemote = false;
-      setStatus("Firebase同期中", "ok");
+      setStatus(snapshot.metadata.hasPendingWrites ? "変更を送信中..." : "Firebase同期中", "ok");
       render();
     }, error=>{
       connected = false;
@@ -459,7 +490,7 @@ function save(){
   saveTimer = setTimeout(()=>{
     lastSavePromise = setDoc(activeDocRef, {
       ...state,
-      schemaVersion:3.2,
+      schemaVersion:3.3,
       updatedAt:serverTimestamp()
     }, { merge:true }).catch(error=>{
       setStatus(`保存エラー: ${error.message}`, "err");
@@ -510,6 +541,7 @@ function addItem(){
   const itemName = $("itemName").value.trim();
   if(!itemName || state.current.stores.length === 0) return;
   state.current.stores[selected].items.push({
+    id:crypto.randomUUID ? crypto.randomUUID() : `item-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     name:itemName,
     qty:Number($("itemQty").value) || 1,
     done:false
@@ -520,12 +552,41 @@ function addItem(){
   render();
 }
 
-function toggle(storeIndex,itemIndex){
+async function toggle(storeIndex,itemIndex){
   const item = state.current.stores[storeIndex]?.items[itemIndex];
   if(!item) return;
-  item.done = !item.done;
-  save();
+  const previous = Boolean(item.done);
+  const next = !previous;
+  item.done = next;
+  purchaseStates[item.id] = next;
+  const version = (toggleWriteVersions.get(item.id) || 0) + 1;
+  toggleWriteVersions.set(item.id, version);
+  pendingPurchaseIds.add(item.id);
   render();
+  if(!connected || !activeDocRef){
+    pendingPurchaseIds.delete(item.id);
+    setStatus("未接続のため購入状態を保存できません", "err");
+    render();
+    return;
+  }
+  try{
+    await updateDoc(
+      activeDocRef,
+      new FieldPath("purchaseStates", item.id), next,
+      "updatedAt", serverTimestamp()
+    );
+  }catch(error){
+    if(toggleWriteVersions.get(item.id) === version){
+      item.done = previous;
+      purchaseStates[item.id] = previous;
+      setStatus(`購入状態の保存エラー: ${error.message}`, "err");
+    }
+  }finally{
+    if(toggleWriteVersions.get(item.id) === version){
+      pendingPurchaseIds.delete(item.id);
+      render();
+    }
+  }
 }
 
 function delItem(storeIndex,itemIndex){
@@ -625,7 +686,12 @@ function addRecipeItems(){
     if(existing){
       existing.qty += item.qty;
     }else{
-      state.current.stores[storeIndex].items.push({ name:item.name, qty:item.qty, done:false });
+      state.current.stores[storeIndex].items.push({
+        id:crypto.randomUUID ? crypto.randomUUID() : `item-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        name:item.name,
+        qty:item.qty,
+        done:false
+      });
     }
   });
   save();
@@ -705,7 +771,7 @@ function render(){
           <input class="qtyInput" type="number" min="1" value="${escapeAttr(item.qty)}" data-action="qty" data-store="${storeIndex}" data-item="${itemIndex}">
         </span>
         <span class="rowActions">
-          <button class="btn-sub" data-action="toggle" data-store="${storeIndex}" data-item="${itemIndex}">${item.done ? "戻す" : "購入済"}</button>
+          <button class="btn-sub ${pendingPurchaseIds.has(item.id) ? "syncingButton" : ""}" data-action="toggle" data-store="${storeIndex}" data-item="${itemIndex}">${pendingPurchaseIds.has(item.id) ? "同期中..." : item.done ? "戻す" : "購入済"}</button>
           <button class="btn-del" data-action="delItem" data-store="${storeIndex}" data-item="${itemIndex}">削除</button>
         </span>
       </div>
@@ -719,6 +785,7 @@ function render(){
       <button class="btn-del" data-action="delRecipe" data-index="${index}">削除</button>
     </div>
   `).join("") : `<div class="empty">登録レシピはありません。</div>`;
+  $("recipeCount").textContent = `${state.recipes.length}件`;
 
   $("recipeSelect").innerHTML = `<option value="">選択してください</option>` +
     state.recipes.map((recipe,index)=>`<option value="${index}">${escapeHtml(recipe.name)}</option>`).join("");
