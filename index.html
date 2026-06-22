@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>買い物リストアプリ v3.3 Firebase</title>
+<title>買い物リストアプリ v3.3α Firebase</title>
 <style>
 *{box-sizing:border-box}
 :root{
@@ -33,6 +33,27 @@ header{
   border-bottom:1px solid #38404a;
   padding:14px 16px;
 }
+.pullRefresh{
+  position:fixed;
+  top:62px;
+  left:50%;
+  z-index:20;
+  min-width:170px;
+  padding:9px 14px;
+  border:1px solid #59616d;
+  border-radius:7px;
+  background:#242930;
+  color:var(--text);
+  text-align:center;
+  font-size:13px;
+  font-weight:700;
+  opacity:0;
+  pointer-events:none;
+  transform:translate(-50%,-70px);
+  transition:transform .16s ease,opacity .16s ease;
+}
+.pullRefresh.visible{opacity:1}
+.pullRefresh.refreshing{color:var(--brand)}
 .titleRow{
   display:flex;
   justify-content:space-between;
@@ -234,10 +255,11 @@ button:disabled{
 <body>
 <header>
   <div class="titleRow">
-    <h1>買い物リストアプリ v3.3 by由雅</h1>
+    <h1>買い物リストアプリ v3.3α by由雅</h1>
     <div class="status"><span id="syncDot" class="dot"></span><span id="syncStatus">未接続</span></div>
   </div>
 </header>
+<div class="pullRefresh" id="pullRefresh" role="status" aria-live="polite">↓ 下に引いて更新</div>
 
 <main>
   <section class="section">
@@ -342,6 +364,7 @@ import {
   getFirestore,
   doc,
   getDoc,
+  getDocFromServer,
   setDoc,
   updateDoc,
   FieldPath,
@@ -369,6 +392,12 @@ let lastSavePromise = Promise.resolve();
 let purchaseStates = {};
 const pendingPurchaseIds = new Set();
 const toggleWriteVersions = new Map();
+let reconnectTimer = null;
+let reconnectAttempts = 0;
+let lastServerSyncAt = 0;
+let pullStartY = null;
+let pullDistance = 0;
+let refreshing = false;
 
 const $ = id => document.getElementById(id);
 
@@ -450,35 +479,106 @@ async function connectFirebase(){
         updatedAt:serverTimestamp()
       });
     }
-    if(unsubscribe){
-      unsubscribe();
-    }
-    unsubscribe = onSnapshot(activeDocRef, snapshot=>{
-      applyingRemote = true;
-      const remoteData = snapshot.data() || {};
-      purchaseStates = remoteData.purchaseStates && typeof remoteData.purchaseStates === "object"
-        ? remoteData.purchaseStates
-        : {};
-      state = normalizeState(remoteData);
-      state.current.stores.forEach(store=>store.items.forEach(item=>{
-        if(Object.prototype.hasOwnProperty.call(purchaseStates, item.id)){
-          item.done = Boolean(purchaseStates[item.id]);
-        }else{
-          purchaseStates[item.id] = Boolean(item.done);
-        }
-      }));
-      connected = true;
-      applyingRemote = false;
-      setStatus(snapshot.metadata.hasPendingWrites ? "変更を送信中..." : "Firebase同期中", "ok");
-      render();
-    }, error=>{
-      connected = false;
-      setStatus(`同期エラー: ${error.message}`, "err");
-    });
+    startRealtimeListener();
   }catch(error){
     connected = false;
     setStatus(error.message, "err");
   }
+}
+
+function applySnapshot(snapshot){
+  applyingRemote = true;
+  const remoteData = snapshot.data() || {};
+  purchaseStates = remoteData.purchaseStates && typeof remoteData.purchaseStates === "object"
+    ? remoteData.purchaseStates
+    : {};
+  state = normalizeState(remoteData);
+  state.current.stores.forEach(store=>store.items.forEach(item=>{
+    if(Object.prototype.hasOwnProperty.call(purchaseStates, item.id)){
+      item.done = Boolean(purchaseStates[item.id]);
+    }else{
+      purchaseStates[item.id] = Boolean(item.done);
+    }
+  }));
+  connected = true;
+  applyingRemote = false;
+  if(!snapshot.metadata.fromCache){
+    lastServerSyncAt = Date.now();
+    reconnectAttempts = 0;
+  }
+  setStatus(
+    snapshot.metadata.hasPendingWrites
+      ? "変更を送信中..."
+      : snapshot.metadata.fromCache
+        ? "端末内データを表示中"
+        : "Firebase同期中",
+    "ok"
+  );
+  render();
+}
+
+function startRealtimeListener(){
+  clearTimeout(reconnectTimer);
+  if(unsubscribe) unsubscribe();
+  unsubscribe = onSnapshot(
+    activeDocRef,
+    { includeMetadataChanges:true },
+    applySnapshot,
+    error=>{
+      connected = false;
+      unsubscribe = null;
+      setStatus(`同期を再接続中: ${error.message}`, "err");
+      scheduleReconnect();
+    }
+  );
+}
+
+function scheduleReconnect(){
+  if(!activeDocRef || reconnectTimer) return;
+  const delay = Math.min(30000, 1500 * (2 ** reconnectAttempts));
+  reconnectAttempts += 1;
+  reconnectTimer = setTimeout(()=>{
+    reconnectTimer = null;
+    startRealtimeListener();
+  }, delay);
+}
+
+async function refreshFromServer(){
+  if(refreshing) return;
+  if(!activeDocRef){
+    if($("firebaseConfig").value.trim()) await connectFirebase();
+    else setStatus("Firebase設定後に更新してください", "err");
+    resetPullIndicator();
+    return;
+  }
+  refreshing = true;
+  const indicator = $("pullRefresh");
+  indicator.classList.add("visible", "refreshing");
+  indicator.style.transform = "translate(-50%, 0)";
+  indicator.textContent = "更新中...";
+  setStatus("サーバーから更新中...", "idle");
+  try{
+    startRealtimeListener();
+    const snapshot = await getDocFromServer(activeDocRef);
+    applySnapshot(snapshot);
+    indicator.textContent = "✓ 更新しました";
+  }catch(error){
+    connected = false;
+    indicator.textContent = "更新できませんでした";
+    setStatus(navigator.onLine ? `更新エラー: ${error.message}` : "オフラインです", "err");
+    scheduleReconnect();
+  }finally{
+    refreshing = false;
+    setTimeout(resetPullIndicator, 900);
+  }
+}
+
+function resetPullIndicator(){
+  pullDistance = 0;
+  const indicator = $("pullRefresh");
+  indicator.classList.remove("visible", "refreshing");
+  indicator.style.transform = "translate(-50%, -70px)";
+  indicator.textContent = "↓ 下に引いて更新";
 }
 
 function save(){
@@ -563,13 +663,14 @@ async function toggle(storeIndex,itemIndex){
   toggleWriteVersions.set(item.id, version);
   pendingPurchaseIds.add(item.id);
   render();
-  if(!connected || !activeDocRef){
+  if(!db || !activeDocRef){
     pendingPurchaseIds.delete(item.id);
     setStatus("未接続のため購入状態を保存できません", "err");
     render();
     return;
   }
   try{
+    setStatus(navigator.onLine ? "購入状態を送信中..." : "オフライン・送信待ち", "idle");
     await updateDoc(
       activeDocRef,
       new FieldPath("purchaseStates", item.id), next,
@@ -584,6 +685,7 @@ async function toggle(storeIndex,itemIndex){
   }finally{
     if(toggleWriteVersions.get(item.id) === version){
       pendingPurchaseIds.delete(item.id);
+      if(connected) setStatus("Firebase同期中", "ok");
       render();
     }
   }
@@ -869,7 +971,43 @@ function bindEvents(){
   });
   window.addEventListener("beforeunload", ()=>{
     clearTimeout(saveTimer);
+    clearTimeout(reconnectTimer);
   });
+  window.addEventListener("online", ()=>{
+    setStatus("オンライン復帰・更新中...", "idle");
+    refreshFromServer();
+  });
+  window.addEventListener("offline", ()=>setStatus("オフライン・変更は送信待ち", "err"));
+  document.addEventListener("visibilitychange", ()=>{
+    if(document.visibilityState === "visible" && activeDocRef && Date.now() - lastServerSyncAt > 10000){
+      refreshFromServer();
+    }
+  });
+  document.addEventListener("touchstart", event=>{
+    if(window.scrollY === 0 && !refreshing && event.touches.length === 1){
+      pullStartY = event.touches[0].clientY;
+    }
+  }, { passive:true });
+  document.addEventListener("touchmove", event=>{
+    if(pullStartY === null || window.scrollY !== 0) return;
+    pullDistance = Math.max(0, Math.min(110, (event.touches[0].clientY - pullStartY) * .55));
+    if(pullDistance <= 0) return;
+    event.preventDefault();
+    const indicator = $("pullRefresh");
+    indicator.classList.add("visible");
+    indicator.style.transform = `translate(-50%, ${pullDistance - 58}px)`;
+    indicator.textContent = pullDistance >= 58 ? "↑ 離して更新" : "↓ 下に引いて更新";
+  }, { passive:false });
+  document.addEventListener("touchend", ()=>{
+    if(pullStartY === null) return;
+    pullStartY = null;
+    if(pullDistance >= 58) refreshFromServer();
+    else resetPullIndicator();
+  }, { passive:true });
+  document.addEventListener("touchcancel", ()=>{
+    pullStartY = null;
+    resetPullIndicator();
+  }, { passive:true });
 }
 
 loadConnectionSettings();
