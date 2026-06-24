@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>買い物リストアプリ v3.3α Firebase</title>
+<title>買い物リストアプリ v3.4 Firebase</title>
 <style>
 *{box-sizing:border-box}
 :root{
@@ -61,6 +61,26 @@ header{
   gap:12px;
   max-width:980px;
   margin:auto;
+}
+.headerTools{
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:8px;
+}
+.orientationBtn{
+  min-height:32px;
+  margin:0;
+  padding:5px 9px;
+  border:1px solid #59616d;
+  background:#2d333b;
+  color:var(--text);
+  font-size:12px;
+  white-space:nowrap;
+}
+.orientationBtn[aria-pressed="true"]{
+  border-color:var(--brand);
+  color:var(--brand);
 }
 h1{
   margin:0;
@@ -166,9 +186,34 @@ button:disabled{
   padding:8px;
   border-bottom:1px solid #3c434d;
 }
+.categoryGroup{border-left:3px solid var(--category-color,#8b949e)}
+.categoryHeader{
+  margin-top:7px;
+  padding:5px 9px;
+  background:#292e35;
+  border-top:1px solid #414853;
+  border-bottom:1px solid #414853;
+  color:var(--category-color,#d6dbe1);
+  font-size:13px;
+  font-weight:700;
+}
+.category-0{--category-color:#57d38c}
+.category-1{--category-color:#8bd450}
+.category-2{--category-color:#52b8e8}
+.category-3{--category-color:#ff7f87}
+.category-4{--category-color:#f2cf5b}
+.category-5{--category-color:#ba8cff}
+.category-6{--category-color:#ff9f5a}
+.category-7{--category-color:#72d5cf}
+.category-8{--category-color:#aeb6c2}
 .doneText{
   text-decoration:line-through;
   color:#8b949e;
+}
+.itemName{
+  color:#ffffff;
+  font-weight:700;
+  font-size:18px;
 }
 .qtyWrap{
   display:flex;
@@ -189,7 +234,7 @@ button:disabled{
 }
 .recipeRow{
   display:grid;
-  grid-template-columns:1fr 90px 1fr auto;
+  grid-template-columns:1fr 76px 150px 1fr auto;
   gap:6px;
   margin-bottom:6px;
 }
@@ -235,9 +280,11 @@ button:disabled{
   flex-wrap:wrap;
 }
 @media(max-width:680px){
-  .titleRow,.grid2{
+  .grid2{
     display:block;
   }
+  .titleRow{align-items:flex-start}
+  .headerTools{flex-direction:column;align-items:flex-end;gap:5px}
   h1{font-size:18px}
   .status{margin-top:6px}
   .item{
@@ -246,7 +293,7 @@ button:disabled{
   .recipeRow{
     grid-template-columns:1fr 72px;
   }
-  .recipeRow .rStore,.recipeRow .btn-del{
+  .recipeRow .rCategory,.recipeRow .rStore,.recipeRow .btn-del{
     grid-column:auto;
   }
 }
@@ -255,8 +302,11 @@ button:disabled{
 <body>
 <header>
   <div class="titleRow">
-    <h1>買い物リストアプリ v3.3α by由雅</h1>
-    <div class="status"><span id="syncDot" class="dot"></span><span id="syncStatus">未接続</span></div>
+    <h1>買い物リストアプリ v3.4 by由雅</h1>
+    <div class="headerTools">
+      <button type="button" class="orientationBtn" id="portraitLockBtn" aria-pressed="true" title="スマホ画面を縦向きに固定">▯ 縦固定 ON</button>
+      <div class="status"><span id="syncDot" class="dot"></span><span id="syncStatus">未接続</span></div>
+    </div>
   </div>
 </header>
 <div class="pullRefresh" id="pullRefresh" role="status" aria-live="polite">↓ 下に引いて更新</div>
@@ -288,6 +338,8 @@ button:disabled{
     <h2>■ 商品追加</h2>
     <select id="storeSelect"></select>
     <input id="itemName" placeholder="商品名">
+    <label>小分類</label>
+    <select id="itemCategory"></select>
     <label>数量</label>
     <div class="qtyWrap">
       <button type="button" class="qtyBtn" id="qtyDownBtn">−</button>
@@ -377,6 +429,18 @@ const emptyState = () => ({ current:emptyList(), recipes:[], archives:[] });
 const configStorageKey = "shoppingListV32FirebaseConfig";
 const syncKeyStorageKey = "shoppingListV32SyncKey";
 const authModeStorageKey = "shoppingListV32AuthMode";
+const portraitLockStorageKey = "shoppingListV34PortraitLock";
+const categories = [
+  "野菜、果物",
+  "豆腐、納豆",
+  "魚、海産物",
+  "肉",
+  "卵、乳製品",
+  "加工食品",
+  "調味料",
+  "日用品",
+  "その他"
+];
 
 let state = emptyState();
 let selected = 0;
@@ -398,6 +462,9 @@ let lastServerSyncAt = 0;
 let pullStartY = null;
 let pullDistance = 0;
 let refreshing = false;
+let portraitLockEnabled = localStorage.getItem(portraitLockStorageKey) !== "false";
+let portraitLockApplied = false;
+let orientationFullscreenStarted = false;
 
 const $ = id => document.getElementById(id);
 
@@ -448,13 +515,19 @@ function normalizeState(data){
     store.items.forEach((item,itemIndex)=>{
       item.id = item.id || `legacy-${storeIndex}-${itemIndex}`;
       item.name = item.name || "";
+      item.category = normalizeCategory(item.category);
       item.qty = Math.max(1, Number(item.qty) || 1);
       item.done = Boolean(item.done);
     });
   });
+  const normalizedRecipes = Array.isArray(next.recipes) ? next.recipes : [];
+  normalizedRecipes.forEach(recipe=>{
+    recipe.items = Array.isArray(recipe.items) ? recipe.items : [];
+    recipe.items.forEach(item=>item.category = normalizeCategory(item.category));
+  });
   return {
     current,
-    recipes:Array.isArray(next.recipes) ? next.recipes : [],
+    recipes:normalizedRecipes,
     archives:Array.isArray(next.archives) ? next.archives : []
   };
 }
@@ -474,7 +547,7 @@ async function connectFirebase(){
     if(!snap.exists()){
       await setDoc(activeDocRef, {
         ...state,
-         schemaVersion:3.3,
+         schemaVersion:3.4,
         createdAt:serverTimestamp(),
         updatedAt:serverTimestamp()
       });
@@ -590,7 +663,7 @@ function save(){
   saveTimer = setTimeout(()=>{
     lastSavePromise = setDoc(activeDocRef, {
       ...state,
-      schemaVersion:3.3,
+      schemaVersion:3.4,
       updatedAt:serverTimestamp()
     }, { merge:true }).catch(error=>{
       setStatus(`保存エラー: ${error.message}`, "err");
@@ -643,6 +716,7 @@ function addItem(){
   state.current.stores[selected].items.push({
     id:crypto.randomUUID ? crypto.randomUUID() : `item-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     name:itemName,
+    category:normalizeCategory($("itemCategory").value),
     qty:Number($("itemQty").value) || 1,
     done:false
   });
@@ -712,12 +786,13 @@ function qty(storeIndex,itemIndex,value){
   save();
 }
 
-function addRecipeRow(name="", qtyValue=1, store=""){
+function addRecipeRow(name="", qtyValue=1, store="", category="その他"){
   const row = document.createElement("div");
   row.className = "recipeRow";
   row.innerHTML = `
     <input class="rName" placeholder="材料名" value="${escapeAttr(name)}">
     <input class="rQty" type="number" min="1" value="${escapeAttr(qtyValue)}">
+    <select class="rCategory" aria-label="小分類">${categoryOptions(category)}</select>
     <input class="rStore" placeholder="店舗" value="${escapeAttr(store)}">
     <button class="btn-del" type="button">削除</button>
   `;
@@ -735,6 +810,7 @@ function saveRecipe(){
     .map(row=>({
       name:row.querySelector(".rName").value.trim(),
       qty:Number(row.querySelector(".rQty").value) || 1,
+      category:normalizeCategory(row.querySelector(".rCategory").value),
       store:row.querySelector(".rStore").value.trim()
     }))
     .filter(item=>item.name);
@@ -767,7 +843,7 @@ function loadRecipe(){
     <div class="recipePreviewItem">
       <label>
         <input type="checkbox" class="recipeCheck" data-index="${index}" checked>
-        ${escapeHtml(item.name)} × ${escapeHtml(item.qty)}（${escapeHtml(item.store || "店舗未設定")}）
+        ${escapeHtml(item.name)} × ${escapeHtml(item.qty)}（${escapeHtml(normalizeCategory(item.category))}／${escapeHtml(item.store || "店舗未設定")}）
       </label>
     </div>
   `).join("");
@@ -784,13 +860,15 @@ function addRecipeItems(){
       state.current.stores.push({ name:storeName, items:[] });
       storeIndex = state.current.stores.length - 1;
     }
-    const existing = state.current.stores[storeIndex].items.find(x=>x.name === item.name);
+    const itemCategory = normalizeCategory(item.category);
+    const existing = state.current.stores[storeIndex].items.find(x=>x.name === item.name && normalizeCategory(x.category) === itemCategory);
     if(existing){
       existing.qty += item.qty;
     }else{
       state.current.stores[storeIndex].items.push({
         id:crypto.randomUUID ? crypto.randomUUID() : `item-${Date.now()}-${Math.random().toString(36).slice(2)}`,
         name:item.name,
+        category:itemCategory,
         qty:item.qty,
         done:false
       });
@@ -866,9 +944,17 @@ function render(){
       <span>${escapeHtml(store.name)}</span>
       <button class="btn-del" data-action="delStore" data-store="${storeIndex}">削除</button>
     </div>
-    ${store.items.map((item,itemIndex)=>`
+    ${categories.map((category,categoryIndex)=>{
+      const categoryItems = store.items
+        .map((item,itemIndex)=>({item,itemIndex}))
+        .filter(entry=>normalizeCategory(entry.item.category) === category);
+      if(!categoryItems.length) return "";
+      return `
+      <div class="categoryHeader category-${categoryIndex}">${escapeHtml(category)}</div>
+      <div class="categoryGroup category-${categoryIndex}">
+      ${categoryItems.map(({item,itemIndex})=>`
       <div class="item">
-        <span class="${item.done ? "doneText" : ""}">${escapeHtml(item.name)}</span>
+        <span class="${item.done ? "doneText" : "itemName"}">${escapeHtml(item.name)}</span>
         <span class="qtyWrap">
           <input class="qtyInput" type="number" min="1" value="${escapeAttr(item.qty)}" data-action="qty" data-store="${storeIndex}" data-item="${itemIndex}">
         </span>
@@ -877,7 +963,9 @@ function render(){
           <button class="btn-del" data-action="delItem" data-store="${storeIndex}" data-item="${itemIndex}">削除</button>
         </span>
       </div>
-    `).join("")}
+      `).join("")}
+      </div>`;
+    }).join("")}
   `).join("") : `<div class="empty">店舗と商品を追加してください。</div>`;
 
   $("recipeList").innerHTML = state.recipes.length ? state.recipes.map((recipe,index)=>`
@@ -916,7 +1004,80 @@ function escapeAttr(value){
   return escapeHtml(value);
 }
 
+function normalizeCategory(category){
+  return categories.includes(category) ? category : "その他";
+}
+
+function categoryOptions(selected="その他"){
+  const normalized = normalizeCategory(selected);
+  return categories.map(category=>
+    `<option value="${escapeAttr(category)}"${category === normalized ? " selected" : ""}>${escapeHtml(category)}</option>`
+  ).join("");
+}
+
+function updatePortraitLockButton(message=""){
+  const button = $("portraitLockBtn");
+  button.setAttribute("aria-pressed", String(portraitLockEnabled));
+  button.textContent = `▯ 縦固定 ${portraitLockEnabled ? "ON" : "OFF"}`;
+  button.title = message || (portraitLockEnabled
+    ? portraitLockApplied ? "縦向きに固定中。タップで解除" : "タップして縦固定を適用"
+    : "タップして縦固定を有効化");
+}
+
+async function applyPortraitLock(enabled, fromUser=false){
+  portraitLockEnabled = enabled;
+  localStorage.setItem(portraitLockStorageKey, String(enabled));
+  if(!enabled){
+    try{ screen.orientation?.unlock(); }catch(_error){}
+    portraitLockApplied = false;
+    if(fromUser && orientationFullscreenStarted && document.fullscreenElement){
+      try{ await document.exitFullscreen(); }catch(_error){}
+    }
+    orientationFullscreenStarted = false;
+    updatePortraitLockButton();
+    return;
+  }
+  try{
+    if(!screen.orientation?.lock) throw new Error("orientation-lock-unsupported");
+    try{
+      await lockPortraitWithTimeout();
+    }catch(error){
+      if(!fromUser || !document.documentElement.requestFullscreen) throw error;
+      if(!document.fullscreenElement){
+        await document.documentElement.requestFullscreen();
+        orientationFullscreenStarted = true;
+      }
+      await lockPortraitWithTimeout();
+    }
+    portraitLockApplied = true;
+    updatePortraitLockButton();
+  }catch(_error){
+    portraitLockApplied = false;
+    if(orientationFullscreenStarted && document.fullscreenElement){
+      try{ await document.exitFullscreen(); }catch(_exitError){}
+    }
+    orientationFullscreenStarted = false;
+    updatePortraitLockButton("このブラウザでは自動固定できません。端末側の縦向きロックを使用してください");
+  }
+}
+
+function lockPortraitWithTimeout(){
+  return Promise.race([
+    screen.orientation.lock("portrait"),
+    new Promise((_,reject)=>setTimeout(()=>reject(new Error("orientation-lock-timeout")),1500))
+  ]);
+}
+
+async function handlePortraitLock(){
+  if(portraitLockEnabled && !portraitLockApplied){
+    await applyPortraitLock(true, true);
+  }else{
+    await applyPortraitLock(!portraitLockEnabled, true);
+  }
+}
+
 function bindEvents(){
+  $("portraitLockBtn").addEventListener("click", handlePortraitLock);
   $("connectBtn").addEventListener("click", connectFirebase);
   $("saveConfigBtn").addEventListener("click", ()=>{
     saveConnectionSettings();
@@ -1011,9 +1172,14 @@ function bindEvents(){
 }
 
 loadConnectionSettings();
+$("itemCategory").innerHTML = categoryOptions("その他");
+updatePortraitLockButton();
 bindEvents();
 addRecipeRow();
 render();
+if(portraitLockEnabled && navigator.maxTouchPoints > 0){
+  applyPortraitLock(true);
+}
 if($("firebaseConfig").value.trim()){
   connectFirebase();
 }
