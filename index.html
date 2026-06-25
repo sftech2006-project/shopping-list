@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>買い物リストアプリ v3.4 Firebase</title>
+<title>買い物リストアプリ v3.5 Firebase</title>
 <style>
 *{box-sizing:border-box}
 :root{
@@ -302,7 +302,7 @@ button:disabled{
 <body>
 <header>
   <div class="titleRow">
-    <h1>買い物リストアプリ v3.4 by由雅</h1>
+    <h1>買い物リストアプリ v3.5 by由雅</h1>
     <div class="headerTools">
       <button type="button" class="orientationBtn" id="portraitLockBtn" aria-pressed="true" title="スマホ画面を縦向きに固定">▯ 縦固定 ON</button>
       <div class="status"><span id="syncDot" class="dot"></span><span id="syncStatus">未接続</span></div>
@@ -525,10 +525,20 @@ function normalizeState(data){
     recipe.items = Array.isArray(recipe.items) ? recipe.items : [];
     recipe.items.forEach(item=>item.category = normalizeCategory(item.category));
   });
+  const normalizedArchives = Array.isArray(next.archives) ? next.archives : [];
+  normalizedArchives.forEach(archive=>{
+    const archiveData = archive.data && typeof archive.data === "object" ? archive.data : emptyList();
+    archiveData.stores = Array.isArray(archiveData.stores) ? archiveData.stores : [];
+    archiveData.stores.forEach(store=>{
+      store.items = Array.isArray(store.items) ? store.items : [];
+      store.items.forEach(item=>item.category = normalizeCategory(item.category));
+    });
+    archive.data = archiveData;
+  });
   return {
     current,
     recipes:normalizedRecipes,
-    archives:Array.isArray(next.archives) ? next.archives : []
+    archives:normalizedArchives
   };
 }
 
@@ -547,7 +557,7 @@ async function connectFirebase(){
     if(!snap.exists()){
       await setDoc(activeDocRef, {
         ...state,
-         schemaVersion:3.4,
+         schemaVersion:3.5,
         createdAt:serverTimestamp(),
         updatedAt:serverTimestamp()
       });
@@ -663,7 +673,7 @@ function save(){
   saveTimer = setTimeout(()=>{
     lastSavePromise = setDoc(activeDocRef, {
       ...state,
-      schemaVersion:3.4,
+      schemaVersion:3.5,
       updatedAt:serverTimestamp()
     }, { merge:true }).catch(error=>{
       setStatus(`保存エラー: ${error.message}`, "err");
@@ -909,11 +919,28 @@ function showArchive(index){
   `;
   archive.data.stores.forEach(store=>{
     html += `<hr><h3>${escapeHtml(store.name)}</h3>`;
-    store.items.forEach(item=>{
-      html += `${escapeHtml(item.name)} × ${escapeHtml(item.qty)}<br>`;
-    });
+    html += renderArchiveStoreItems(store);
   });
   $("detail").innerHTML = html;
+}
+
+function renderArchiveStoreItems(store){
+  return categories.map((category,categoryIndex)=>{
+    const categoryItems = (store.items || [])
+      .filter(item=>normalizeCategory(item.category) === category);
+    if(!categoryItems.length) return "";
+    return `
+      <div class="categoryHeader category-${categoryIndex}">${escapeHtml(category)}</div>
+      <div class="categoryGroup category-${categoryIndex}">
+        ${categoryItems.map(item=>`
+          <div class="item">
+            <span class="${item.done ? "doneText" : "itemName"}">${escapeHtml(item.name)}</span>
+            <span>${escapeHtml(item.qty)}</span>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }).join("");
 }
 
 function backArchive(){
