@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>買い物リストアプリ v3.5 Firebase</title>
+<title>買い物リストアプリ v4.0 Firebase</title>
 <style>
 *{box-sizing:border-box}
 :root{
@@ -165,6 +165,18 @@ button:disabled{
   grid-template-columns:1fr 1fr;
   gap:10px;
 }
+.listTools{
+  display:grid;
+  grid-template-columns:1fr auto auto;
+  gap:8px;
+  align-items:end;
+}
+.listButtons{
+  display:flex;
+  flex-wrap:wrap;
+  gap:4px;
+}
+.listButtons button{margin:4px 0}
 .hidden{display:none!important}
 .store{
   background:linear-gradient(90deg,#2563eb,#4ea1ff);
@@ -283,6 +295,9 @@ button:disabled{
   .grid2{
     display:block;
   }
+  .listTools{
+    grid-template-columns:1fr;
+  }
   .titleRow{align-items:flex-start}
   .headerTools{flex-direction:column;align-items:flex-end;gap:5px}
   h1{font-size:18px}
@@ -302,7 +317,7 @@ button:disabled{
 <body>
 <header>
   <div class="titleRow">
-    <h1>買い物リストアプリ v3.5 by由雅</h1>
+    <h1>買い物リストアプリ v4.0 by由雅</h1>
     <div class="headerTools">
       <button type="button" class="orientationBtn" id="portraitLockBtn" aria-pressed="true" title="スマホ画面を縦向きに固定">▯ 縦固定 ON</button>
       <div class="status"><span id="syncDot" class="dot"></span><span id="syncStatus">未接続</span></div>
@@ -314,6 +329,14 @@ button:disabled{
 <main>
   <section class="section">
     <h2>■ リスト作成</h2>
+    <div class="listTools">
+      <div>
+        <label>表示する買い物リスト</label>
+        <select id="activeListSelect"></select>
+      </div>
+      <button class="btn-detail" id="switchListBtn">切換</button>
+      <button class="btn-del" id="deleteListBtn">このリストを削除</button>
+    </div>
     <input id="listName" placeholder="リスト名">
     <div class="grid2">
       <div>
@@ -325,7 +348,10 @@ button:disabled{
         <input type="date" id="buyDate">
       </div>
     </div>
-    <button class="btn-add" id="newListBtn">新規作成</button>
+    <div class="listButtons">
+      <button class="btn-add" id="newListBtn">新規リスト追加</button>
+      <button class="btn-sub" id="saveListMetaBtn">名前・日付を保存</button>
+    </div>
   </section>
 
   <section class="section">
@@ -424,12 +450,17 @@ import {
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
 
-const emptyList = () => ({ name:"", createDate:"", buyDate:"", stores:[] });
-const emptyState = () => ({ current:emptyList(), recipes:[], archives:[] });
+const createId = prefix => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+const emptyList = () => ({ id:createId("list"), name:"", createDate:"", buyDate:"", stores:[] });
+const emptyState = () => {
+  const list = emptyList();
+  return { lists:[list], activeListId:list.id, current:list, recipes:[], archives:[] };
+};
 const configStorageKey = "shoppingListV32FirebaseConfig";
 const syncKeyStorageKey = "shoppingListV32SyncKey";
 const authModeStorageKey = "shoppingListV32AuthMode";
 const portraitLockStorageKey = "shoppingListV34PortraitLock";
+const activeListStorageKey = "shoppingListV40ActiveListId";
 const categories = [
   "野菜、果物",
   "豆腐、納豆",
@@ -505,21 +536,57 @@ function loadConnectionSettings(){
   currentDocPath();
 }
 
-function normalizeState(data){
-  const next = data && typeof data === "object" ? data : {};
-  const current = next.current && typeof next.current === "object" ? next.current : emptyList();
-  current.stores = Array.isArray(current.stores) ? current.stores : [];
-  current.stores.forEach((store,storeIndex)=>{
+function normalizeList(list, fallbackIndex=0){
+  const normalized = list && typeof list === "object" ? list : emptyList();
+  normalized.id = normalized.id || `legacy-list-${fallbackIndex}`;
+  normalized.name = normalized.name || "";
+  normalized.createDate = normalized.createDate || "";
+  normalized.buyDate = normalized.buyDate || "";
+  normalized.stores = Array.isArray(normalized.stores) ? normalized.stores : [];
+  normalized.stores.forEach((store,storeIndex)=>{
     store.name = store.name || "";
     store.items = Array.isArray(store.items) ? store.items : [];
     store.items.forEach((item,itemIndex)=>{
-      item.id = item.id || `legacy-${storeIndex}-${itemIndex}`;
+      item.id = item.id || `legacy-${normalized.id}-${storeIndex}-${itemIndex}`;
       item.name = item.name || "";
       item.category = normalizeCategory(item.category);
       item.qty = Math.max(1, Number(item.qty) || 1);
       item.done = Boolean(item.done);
     });
   });
+  return normalized;
+}
+
+function activeList(){
+  if(!Array.isArray(state.lists)) state.lists = [];
+  if(!state.lists.length){
+    const list = emptyList();
+    state.lists.push(list);
+    state.activeListId = list.id;
+  }
+  let list = state.lists.find(entry=>entry.id === state.activeListId);
+  if(!list){
+    list = state.lists[0];
+    state.activeListId = list.id;
+  }
+  state.current = list;
+  localStorage.setItem(activeListStorageKey, list.id);
+  return list;
+}
+
+function normalizeState(data){
+  const next = data && typeof data === "object" ? data : {};
+  const sourceLists = Array.isArray(next.lists) && next.lists.length
+    ? next.lists
+    : [next.current && typeof next.current === "object" ? next.current : emptyList()];
+  const lists = sourceLists.map((list,index)=>normalizeList(list,index));
+  const savedActiveListId = localStorage.getItem(activeListStorageKey);
+  let activeListId = savedActiveListId || next.activeListId || lists[0]?.id;
+  if(!lists.some(list=>list.id === activeListId)){
+    activeListId = lists[0]?.id;
+  }
+  if(activeListId) localStorage.setItem(activeListStorageKey, activeListId);
+  const current = lists.find(list=>list.id === activeListId) || lists[0];
   const normalizedRecipes = Array.isArray(next.recipes) ? next.recipes : [];
   normalizedRecipes.forEach(recipe=>{
     recipe.items = Array.isArray(recipe.items) ? recipe.items : [];
@@ -536,6 +603,8 @@ function normalizeState(data){
     archive.data = archiveData;
   });
   return {
+    lists,
+    activeListId,
     current,
     recipes:normalizedRecipes,
     archives:normalizedArchives
@@ -557,7 +626,7 @@ async function connectFirebase(){
     if(!snap.exists()){
       await setDoc(activeDocRef, {
         ...state,
-         schemaVersion:3.5,
+         schemaVersion:4.0,
         createdAt:serverTimestamp(),
         updatedAt:serverTimestamp()
       });
@@ -576,13 +645,13 @@ function applySnapshot(snapshot){
     ? remoteData.purchaseStates
     : {};
   state = normalizeState(remoteData);
-  state.current.stores.forEach(store=>store.items.forEach(item=>{
+  state.lists.forEach(list=>list.stores.forEach(store=>store.items.forEach(item=>{
     if(Object.prototype.hasOwnProperty.call(purchaseStates, item.id)){
       item.done = Boolean(purchaseStates[item.id]);
     }else{
       purchaseStates[item.id] = Boolean(item.done);
     }
-  }));
+  })));
   connected = true;
   applyingRemote = false;
   if(!snapshot.metadata.fromCache){
@@ -665,6 +734,7 @@ function resetPullIndicator(){
 }
 
 function save(){
+  activeList();
   if(applyingRemote || !connected || !db || !activeDocRef){
     render();
     return;
@@ -672,8 +742,11 @@ function save(){
   clearTimeout(saveTimer);
   saveTimer = setTimeout(()=>{
     lastSavePromise = setDoc(activeDocRef, {
-      ...state,
-      schemaVersion:3.5,
+      lists:state.lists,
+      current:activeList(),
+      recipes:state.recipes,
+      archives:state.archives,
+      schemaVersion:4.0,
       updatedAt:serverTimestamp()
     }, { merge:true }).catch(error=>{
       setStatus(`保存エラー: ${error.message}`, "err");
@@ -696,34 +769,84 @@ function changeAddQty(diff){
   $("itemQty").value = qty;
 }
 
+function isBlankList(list){
+  return !list.name && !list.createDate && !list.buyDate && (!Array.isArray(list.stores) || list.stores.length === 0);
+}
+
 function newList(){
-  if(state.current.stores.length && !confirm("現在のリストを破棄して新規作成しますか？")){
+  const current = activeList();
+  if(state.lists.length === 1 && isBlankList(current)){
+    current.name = $("listName").value.trim() || "買い物リスト1";
+    current.createDate = $("createDate").value;
+    current.buyDate = $("buyDate").value;
+    save();
+    render();
     return;
   }
-  state.current = {
+  const list = normalizeList({
+    id:createId("list"),
     name:$("listName").value.trim(),
     createDate:$("createDate").value,
     buyDate:$("buyDate").value,
     stores:[]
-  };
+  }, state.lists.length);
+  if(!list.name) list.name = `買い物リスト${state.lists.length + 1}`;
+  state.lists.push(list);
+  state.activeListId = list.id;
+  state.current = list;
+  selected = 0;
+  save();
+  render();
+}
+
+function saveListMeta(){
+  const list = activeList();
+  list.name = $("listName").value.trim();
+  list.createDate = $("createDate").value;
+  list.buyDate = $("buyDate").value;
+  save();
+  render();
+}
+
+function switchList(){
+  const nextId = $("activeListSelect").value;
+  if(!nextId || nextId === state.activeListId) return;
+  state.activeListId = nextId;
+  activeList();
+  selected = 0;
+  render();
+}
+
+function deleteCurrentList(){
+  const list = activeList();
+  if(state.lists.length <= 1){
+    alert("最後のリストは削除できません。名前や中身を変更して使ってください。");
+    return;
+  }
+  if(!confirm(`「${list.name || "無題"}」を削除しますか？`)) return;
+  state.lists = state.lists.filter(entry=>entry.id !== list.id);
+  state.activeListId = state.lists[0].id;
+  activeList();
   selected = 0;
   save();
   render();
 }
 
 function addStore(){
+  const current = activeList();
   const name = $("storeName").value.trim();
   if(!name) return;
-  state.current.stores.push({ name, items:[] });
+  current.stores.push({ name, items:[] });
   $("storeName").value = "";
   save();
   render();
 }
 
 function addItem(){
+  const current = activeList();
   const itemName = $("itemName").value.trim();
-  if(!itemName || state.current.stores.length === 0) return;
-  state.current.stores[selected].items.push({
+  if(!itemName || current.stores.length === 0) return;
+  current.stores[selected].items.push({
     id:crypto.randomUUID ? crypto.randomUUID() : `item-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     name:itemName,
     category:normalizeCategory($("itemCategory").value),
@@ -737,7 +860,7 @@ function addItem(){
 }
 
 async function toggle(storeIndex,itemIndex){
-  const item = state.current.stores[storeIndex]?.items[itemIndex];
+  const item = activeList().stores[storeIndex]?.items[itemIndex];
   if(!item) return;
   const previous = Boolean(item.done);
   const next = !previous;
@@ -776,21 +899,22 @@ async function toggle(storeIndex,itemIndex){
 }
 
 function delItem(storeIndex,itemIndex){
-  state.current.stores[storeIndex]?.items.splice(itemIndex,1);
+  activeList().stores[storeIndex]?.items.splice(itemIndex,1);
   save();
   render();
 }
 
 function delStore(storeIndex){
   if(!confirm("店舗を削除しますか？")) return;
-  state.current.stores.splice(storeIndex,1);
-  if(selected >= state.current.stores.length) selected = Math.max(0, state.current.stores.length - 1);
+  const current = activeList();
+  current.stores.splice(storeIndex,1);
+  if(selected >= current.stores.length) selected = Math.max(0, current.stores.length - 1);
   save();
   render();
 }
 
 function qty(storeIndex,itemIndex,value){
-  const item = state.current.stores[storeIndex]?.items[itemIndex];
+  const item = activeList().stores[storeIndex]?.items[itemIndex];
   if(!item) return;
   item.qty = Math.max(1, Number(value) || 1);
   save();
@@ -860,22 +984,23 @@ function loadRecipe(){
 }
 
 function addRecipeItems(){
+  const current = activeList();
   document.querySelectorAll(".recipeCheck").forEach(check=>{
     if(!check.checked) return;
     const item = recipePreviewData[Number(check.dataset.index)];
     if(!item) return;
     const storeName = item.store || "未分類";
-    let storeIndex = state.current.stores.findIndex(store=>store.name === storeName);
+    let storeIndex = current.stores.findIndex(store=>store.name === storeName);
     if(storeIndex === -1){
-      state.current.stores.push({ name:storeName, items:[] });
-      storeIndex = state.current.stores.length - 1;
+      current.stores.push({ name:storeName, items:[] });
+      storeIndex = current.stores.length - 1;
     }
     const itemCategory = normalizeCategory(item.category);
-    const existing = state.current.stores[storeIndex].items.find(x=>x.name === item.name && normalizeCategory(x.category) === itemCategory);
+    const existing = current.stores[storeIndex].items.find(x=>x.name === item.name && normalizeCategory(x.category) === itemCategory);
     if(existing){
       existing.qty += item.qty;
     }else{
-      state.current.stores[storeIndex].items.push({
+      current.stores[storeIndex].items.push({
         id:crypto.randomUUID ? crypto.randomUUID() : `item-${Date.now()}-${Math.random().toString(36).slice(2)}`,
         name:item.name,
         category:itemCategory,
@@ -892,7 +1017,7 @@ function addRecipeItems(){
 function backupList(){
   state.archives.push({
     savedAt:new Date().toLocaleString("ja-JP"),
-    data:JSON.parse(JSON.stringify(state.current))
+    data:JSON.parse(JSON.stringify(activeList()))
   });
   save();
   render();
@@ -949,24 +1074,32 @@ function backArchive(){
 }
 
 function render(){
-  $("listName").value = state.current.name || "";
-  $("createDate").value = state.current.createDate || "";
-  $("buyDate").value = state.current.buyDate || "";
+  const current = activeList();
+  const activeListSelect = $("activeListSelect");
+  activeListSelect.innerHTML = state.lists.map((list,index)=>`
+    <option value="${escapeAttr(list.id)}"${list.id === state.activeListId ? " selected" : ""}>
+      ${escapeHtml(list.name || `無題リスト${index + 1}`)}
+    </option>
+  `).join("");
+  $("deleteListBtn").disabled = state.lists.length <= 1;
+  $("listName").value = current.name || "";
+  $("createDate").value = current.createDate || "";
+  $("buyDate").value = current.buyDate || "";
 
   const storeSelect = $("storeSelect");
   storeSelect.innerHTML = "";
-  state.current.stores.forEach((store,index)=>{
+  current.stores.forEach((store,index)=>{
     const option = document.createElement("option");
     option.value = index;
     option.textContent = store.name;
     storeSelect.appendChild(option);
   });
-  if(state.current.stores.length){
-    if(selected >= state.current.stores.length) selected = state.current.stores.length - 1;
+  if(current.stores.length){
+    if(selected >= current.stores.length) selected = current.stores.length - 1;
     storeSelect.value = selected;
   }
 
-  $("items").innerHTML = state.current.stores.length ? state.current.stores.map((store,storeIndex)=>`
+  $("items").innerHTML = current.stores.length ? current.stores.map((store,storeIndex)=>`
     <div class="store">
       <span>${escapeHtml(store.name)}</span>
       <button class="btn-del" data-action="delStore" data-store="${storeIndex}">削除</button>
@@ -1119,6 +1252,10 @@ function bindEvents(){
   });
   $("syncKey").addEventListener("input", currentDocPath);
   $("newListBtn").addEventListener("click", newList);
+  $("saveListMetaBtn").addEventListener("click", saveListMeta);
+  $("switchListBtn").addEventListener("click", switchList);
+  $("deleteListBtn").addEventListener("click", deleteCurrentList);
+  $("activeListSelect").addEventListener("change", switchList);
   $("addStoreBtn").addEventListener("click", addStore);
   $("addItemBtn").addEventListener("click", addItem);
   $("qtyDownBtn").addEventListener("click", ()=>changeAddQty(-1));
