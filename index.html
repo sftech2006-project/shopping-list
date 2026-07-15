@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>買い物リストアプリ v4.0 Firebase</title>
+<title>買い物リストアプリ v4.1 Firebase</title>
 <style>
 *{box-sizing:border-box}
 :root{
@@ -167,7 +167,7 @@ button:disabled{
 }
 .listTools{
   display:grid;
-  grid-template-columns:1fr auto auto;
+  grid-template-columns:1fr auto;
   gap:8px;
   align-items:end;
 }
@@ -317,7 +317,7 @@ button:disabled{
 <body>
 <header>
   <div class="titleRow">
-    <h1>買い物リストアプリ v4.0 by由雅</h1>
+    <h1>買い物リストアプリ v4.1 by由雅</h1>
     <div class="headerTools">
       <button type="button" class="orientationBtn" id="portraitLockBtn" aria-pressed="true" title="スマホ画面を縦向きに固定">▯ 縦固定 ON</button>
       <div class="status"><span id="syncDot" class="dot"></span><span id="syncStatus">未接続</span></div>
@@ -334,7 +334,6 @@ button:disabled{
         <label>表示する買い物リスト</label>
         <select id="activeListSelect"></select>
       </div>
-      <button class="btn-detail" id="switchListBtn">切換</button>
       <button class="btn-del" id="deleteListBtn">このリストを削除</button>
     </div>
     <input id="listName" placeholder="リスト名">
@@ -570,6 +569,11 @@ function activeList(){
     state.activeListId = list.id;
   }
   state.current = list;
+  return list;
+}
+
+function rememberActiveList(){
+  const list = activeList();
   localStorage.setItem(activeListStorageKey, list.id);
   return list;
 }
@@ -585,7 +589,6 @@ function normalizeState(data){
   if(!lists.some(list=>list.id === activeListId)){
     activeListId = lists[0]?.id;
   }
-  if(activeListId) localStorage.setItem(activeListStorageKey, activeListId);
   const current = lists.find(list=>list.id === activeListId) || lists[0];
   const normalizedRecipes = Array.isArray(next.recipes) ? next.recipes : [];
   normalizedRecipes.forEach(recipe=>{
@@ -626,7 +629,7 @@ async function connectFirebase(){
     if(!snap.exists()){
       await setDoc(activeDocRef, {
         ...state,
-         schemaVersion:4.0,
+         schemaVersion:4.1,
         createdAt:serverTimestamp(),
         updatedAt:serverTimestamp()
       });
@@ -746,7 +749,7 @@ function save(){
       current:activeList(),
       recipes:state.recipes,
       archives:state.archives,
-      schemaVersion:4.0,
+      schemaVersion:4.1,
       updatedAt:serverTimestamp()
     }, { merge:true }).catch(error=>{
       setStatus(`保存エラー: ${error.message}`, "err");
@@ -779,6 +782,7 @@ function newList(){
     current.name = $("listName").value.trim() || "買い物リスト1";
     current.createDate = $("createDate").value;
     current.buyDate = $("buyDate").value;
+    rememberActiveList();
     save();
     render();
     return;
@@ -794,6 +798,7 @@ function newList(){
   state.lists.push(list);
   state.activeListId = list.id;
   state.current = list;
+  rememberActiveList();
   selected = 0;
   save();
   render();
@@ -812,7 +817,7 @@ function switchList(){
   const nextId = $("activeListSelect").value;
   if(!nextId || nextId === state.activeListId) return;
   state.activeListId = nextId;
-  activeList();
+  rememberActiveList();
   selected = 0;
   render();
 }
@@ -826,7 +831,7 @@ function deleteCurrentList(){
   if(!confirm(`「${list.name || "無題"}」を削除しますか？`)) return;
   state.lists = state.lists.filter(entry=>entry.id !== list.id);
   state.activeListId = state.lists[0].id;
-  activeList();
+  rememberActiveList();
   selected = 0;
   save();
   render();
@@ -1253,7 +1258,6 @@ function bindEvents(){
   $("syncKey").addEventListener("input", currentDocPath);
   $("newListBtn").addEventListener("click", newList);
   $("saveListMetaBtn").addEventListener("click", saveListMeta);
-  $("switchListBtn").addEventListener("click", switchList);
   $("deleteListBtn").addEventListener("click", deleteCurrentList);
   $("activeListSelect").addEventListener("change", switchList);
   $("addStoreBtn").addEventListener("click", addStore);
